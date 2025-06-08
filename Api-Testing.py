@@ -33,14 +33,16 @@ def contract_api_test(method, url, headers, body, expected_status, expected_erro
 
         try:
             resp_json = response.json()
-            if "errors" in resp_json and resp_json["errors"]:
-                result["errors"].append("Non-empty 'errors' found in response")
-                result["passed"] = False
-            if expected_errors and resp_json.get("errors") != expected_errors.get("errors"):
-                result["errors"].append("Error mismatch in response body")
-                result["passed"] = False
-        except Exception as e:
-            result["errors"].append(f"Response JSON parse error: {str(e)}")
+        except ValueError:
+            result["errors"].append("Response is not valid JSON or is empty.")
+            result["passed"] = False
+            return result
+
+        if "errors" in resp_json and resp_json["errors"]:
+            result["errors"].append("Non-empty 'errors' found in response")
+            result["passed"] = False
+        if expected_errors and resp_json.get("errors") != expected_errors.get("errors"):
+            result["errors"].append("Error mismatch in response body")
             result["passed"] = False
 
         return result
