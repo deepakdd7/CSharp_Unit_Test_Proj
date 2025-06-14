@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 Created on Sun Jun  8 19:09:12 2025
@@ -6,14 +5,33 @@ Refactored for GET, PATCH, POST including Indigo FlightSearch format
 """
 
 import json
+import argparse
 import requests
 from fpdf import FPDF
+from typing import Optional
 
 # Global Variables
-Indigo_api_host_url = "http://your-api-host:port"  # <-- Replace this with your actual API base URL
-Indigo_Api_json_files = ["test_data.json", "Indigo-FlighSearch.json"]
+Indigo_api_host_url = "https://api-6epartner-qa.goindigo.in/flightsearch"
+Indigo_Api_json_files = ["Indigo-FlightSearch.json"]
 Indigo_contract_test_report_file = "Flight-search-test-report.pdf"
 
+
+# Function To Parse Command Line Arguments
+def parse_argements(arg: Optional[str] = None) -> argparse.Namespace:
+    
+    parser = argparse.ArgumentParser(
+        description="Indigo Microservice API Contract Testing"
+    )
+        
+    parser.add_argument(
+        "--add-response-body-on-success",
+        action="store_true",
+        help="Add Request And Response Body On Success (ErrorCode: 200) (default: False)"
+    )
+           
+    args = parser.parse_args()
+    
+    return args
 
 # Function To Run the Actual Test
 def contract_api_test(method, url, headers, body, expected_status, expected_errors=None, query=None):
@@ -23,20 +41,22 @@ def contract_api_test(method, url, headers, body, expected_status, expected_erro
 
     try:
         response = requests.request(method, full_url, headers=headers, json=body if body else None)
+        try:
+            resp_json = response.json()
+            resp_body = json.dumps(resp_json, indent=2)
+        except ValueError:
+            resp_body = response.text or "Empty/Invalid JSON"
+            resp_json = {}
+
         result = {
             "method": method,
             "url": url,
             "status_code": response.status_code,
             "passed": response.status_code == expected_status,
-            "errors": []
+            "errors": [],
+            "request_body": json.dumps(body or {}, indent=2),
+            "response_body": resp_body
         }
-
-        try:
-            resp_json = response.json()
-        except ValueError:
-            result["errors"].append("Response is not valid JSON or is empty.")
-            result["passed"] = False
-            return result
 
         if "errors" in resp_json and resp_json["errors"]:
             result["errors"].append("Non-empty 'errors' found in response")
@@ -53,9 +73,10 @@ def contract_api_test(method, url, headers, body, expected_status, expected_erro
             "url": url,
             "status_code": "N/A",
             "passed": False,
-            "errors": [str(e)]
+            "errors": [str(e)],
+            "request_body": json.dumps(body or {}, indent=2),
+            "response_body": "No response received"
         }
-
 
 # Function To Process Test And Send Request To Test
 def api_tests(file_list):
@@ -120,7 +141,7 @@ def api_tests(file_list):
 
 
 # Generate PDF Report
-def generate_pdf_report(results, report_file):
+def generate_pdf_report(args, results, report_file):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
@@ -135,13 +156,25 @@ def generate_pdf_report(results, report_file):
         status_code = res["status_code"]
         passed = res["passed"]
         errors = ", ".join(res["errors"]) if res["errors"] else "None"
+        req_body = res.get("request_body", "N/A")
+        res_body = res.get("response_body", "N/A")
 
-        pdf.multi_cell(0, 10, f"Scenario      : {scenario}\n"
-                              f"Method        : {method}\n"
-                              f"URL           : {url}\n"
-                              f"Status Code   : {status_code}\n"
-                              f"Passed        : {passed}\n"
-                              f"Errors        : {errors}\n", border=1)
+        if not args.add_response_body_on_success and status_code == 200:
+            pdf.multi_cell(0, 10, f"Scenario      : {scenario}\n"
+                                  f"Method        : {method}\n"
+                                  f"URL           : {url}\n"
+                                  f"Status Code   : {status_code}\n"
+                                  f"Passed        : {passed}\n"
+                                  f"Errors        : {errors}\n", border=1)
+        else:
+            pdf.multi_cell(0, 10, f"Scenario      : {scenario}\n"
+                                  f"Method        : {method}\n"
+                                  f"URL           : {url}\n"
+                                  f"Status Code   : {status_code}\n"
+                                  f"Passed        : {passed}\n"
+                                  f"Errors        : {errors}\n"
+                                  f"Request Body  : {req_body}\n"
+                                  f"Response Body : {res_body}\n", border=1)
 
     pdf.output(report_file)
     print(f"✅ Test report saved to {report_file}")
@@ -149,8 +182,9 @@ def generate_pdf_report(results, report_file):
 
 # Main Function
 def main():
+    args = parse_argements()
     results = api_tests(Indigo_Api_json_files)
-    generate_pdf_report(results, Indigo_contract_test_report_file)
+    generate_pdf_report(args, results, Indigo_contract_test_report_file)
 
 # Main execution
 if __name__ == "__main__":
